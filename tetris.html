@@ -1,0 +1,270 @@
+<!--
+Tetris - single-file HTML/JS/CSS
+Instructions:
+1) Save this file as `tetris.html`.
+2) To run locally: open it in a browser (double-click or drag to browser).
+3) To upload to GitHub: create a new repo and add this file; GitHub Pages can serve it from the repo's main branch (Settings > Pages).
+
+Controls:
+- Left / Right arrows: move piece
+- Up arrow: rotate
+- Down arrow: soft drop
+- Space: hard drop
+- P: pause
+
+License: MIT
+-->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tetris — Single File</title>
+  <style>
+    :root{--bg:#0b1020;--panel:#0f1724;--accent:#00d4ff;--muted:#9aa4b2}
+    *{box-sizing:border-box;font-family:Inter,ui-sans-serif,system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial}
+    html,body{height:100%;margin:0;background:linear-gradient(180deg,#071426 0%, #071428 70%);color:#e6eef6}
+    .wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:32px}
+    .app{display:grid;grid-template-columns:360px 220px;gap:20px;align-items:start}
+    .board-card{background:rgba(255,255,255,0.03);padding:18px;border-radius:12px;box-shadow:0 6px 30px rgba(2,6,23,0.6)}
+    canvas{background:linear-gradient(180deg,#081027,#051021);display:block;border-radius:8px}
+    .hud{display:flex;flex-direction:column;gap:12px}
+    .panel{background:var(--panel);padding:12px;border-radius:10px;min-height:80px}
+    .title{font-weight:700;font-size:18px;margin-bottom:6px}
+    .small{color:var(--muted);font-size:13px}
+    .stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .btn{display:inline-block;padding:8px 12px;border-radius:8px;background:rgba(255,255,255,0.04);cursor:pointer;border:1px solid rgba(255,255,255,0.03)}
+    .controls{display:flex;gap:8px;flex-wrap:wrap}
+    .credit{color:var(--muted);font-size:12px;margin-top:10px}
+    .next-canvas{width:120px;height:120px}
+    .center{display:flex;align-items:center;justify-content:center}
+    footer{margin-top:12px;color:var(--muted);font-size:12px}
+    @media (max-width:800px){.app{grid-template-columns:1fr} .hud{order:2}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="app">
+      <div class="board-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <div>
+            <div style="font-size:20px;font-weight:700">Tetris</div>
+            <div class="small">Single-page, open-source</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <div id="level" class="small">Level 1</div>
+            <div id="lines" class="small">Lines 0</div>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:14px">
+          <canvas id="game" width="300" height="600"></canvas>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div class="panel center" style="width:120px;height:120px;padding:8px">
+              <canvas id="next" class="next-canvas" width="120" height="120"></canvas>
+            </div>
+            <div class="panel" style="min-width:120px;text-align:center">
+              <div style="font-weight:700;font-size:14px">Score</div>
+              <div id="score" style="font-size:18px;margin-top:6px">0</div>
+            </div>
+            <div class="panel" style="padding:8px;text-align:center">
+              <div style="font-weight:700">Controls</div>
+              <div class="small" style="margin-top:6px">← → : Move · ↑ : Rotate · ↓ : Soft drop</div>
+              <div class="small">Space : Hard drop · P : Pause</div>
+            </div>
+          </div>
+        </div>
+
+        <footer class="credit">Made with ❤️ — Save this file and upload to GitHub</footer>
+      </div>
+
+      <div class="hud">
+        <div class="panel">
+          <div class="title">Game State</div>
+          <div id="state" class="small">Ready — Press Space to start</div>
+        </div>
+
+        <div class="panel">
+          <div class="title">How to publish</div>
+          <div class="small">1. Create GitHub repo → Add this file as <code>tetris.html</code>.
+          2. Optionally enable GitHub Pages (Settings → Pages → main branch) to serve it.
+          3. Open the file in your browser to play.</div>
+        </div>
+
+        <div class="panel">
+          <div class="title">Quick Tips</div>
+          <div class="small">The game supports levels that speed up. Scoring is standard: single/tetris combos award more points.
+          Refresh to reset. Right-click → Save As to save a copy.
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+<script>
+// Tetris implementation
+(() => {
+  const COLS = 10, ROWS = 20, BLOCK = 30;
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  canvas.width = COLS * BLOCK; canvas.height = ROWS * BLOCK;
+  const nextCanvas = document.getElementById('next');
+  const nctx = nextCanvas.getContext('2d');
+
+  const colors = ['#000000','#00d4ff','#ffb86b','#c792ea','#7ee787','#ffd479','#6ad1ff','#ffaaee'];
+
+  const SHAPES = [
+    [], // 0
+    [[1,1,1,1]], // I
+    [[2,2],[2,2]], // O
+    [[0,3,3],[3,3,0]], // S
+    [[4,4,0],[0,4,4]], // Z
+    [[5,0,0],[5,5,5]], // J
+    [[0,0,6],[6,6,6]], // L
+    [[0,7,0],[7,7,7]] // T
+  ];
+
+  function makeMatrix(w,h){const m=[];for(let y=0;y<h;y++){m.push(new Array(w).fill(0));}return m}
+  let field = makeMatrix(COLS, ROWS);
+
+  function collide(field, piece, pos){
+    for (let y=0;y<piece.length;y++){
+      for (let x=0;x<piece[y].length;x++){
+        if (piece[y][x] && (field[y+pos.y] && field[y+pos.y][x+pos.x]) !== 0) return true;
+        if (piece[y][x] && (y+pos.y>=ROWS || x+pos.x<0 || x+pos.x>=COLS)) return true;
+      }
+    }
+    return false;
+  }
+
+  function merge(field, piece, pos){
+    for (let y=0;y<piece.length;y++){
+      for (let x=0;x<piece[y].length;x++){
+        if (piece[y][x]) field[y+pos.y][x+pos.x] = piece[y][x];
+      }
+    }
+  }
+
+  function rotate(piece){
+    const N = piece.length; const res = Array.from({length:N},()=>Array(N).fill(0));
+    for (let y=0;y<N;y++) for (let x=0;x<N;x++) res[x][N-1-y] = piece[y][x];
+    // trim empty rows/cols
+    while(res.length && res[0].every(v=>v===0)) res.shift();
+    while(res.length && res[res.length-1].every(v=>v===0)) res.pop();
+    let minCol = Infinity; for (let x=0;x<res[0].length;x++){let all= true; for(let y=0;y<res.length;y++) if(res[y][x]){all=false;break;} if(all) minCol = Math.min(minCol,x);}    
+    if(minCol===Infinity) minCol=0; else{for(let y=0;y<res.length;y++) res[y].splice(minCol,1);}
+    return res;
+  }
+
+  function randomPiece(){
+    const id = Math.floor(Math.random()*7)+1; return SHAPES[id].map(r=>r.slice());
+  }
+
+  let current = {pos:{x:3,y:0}, piece:randomPiece()};
+  let next = randomPiece();
+  let dropCounter=0, dropInterval=1000; let lastTime=0; let score=0, lines=0, level=1; let running=true; let gameOver=false;
+
+  function sweep(){
+    let rowCount=0;
+    for (let y=ROWS-1;y>=0;y--){
+      if (field[y].every(v=>v!==0)){
+        const row = field.splice(y,1)[0].fill(0); field.unshift(row); y++; rowCount++;
+      }
+    }
+    if(rowCount>0){
+      lines += rowCount; score += [0,40,100,300,1200][rowCount] * level; document.getElementById('score').textContent = score; document.getElementById('lines').textContent = 'Lines '+lines; level = Math.floor(lines/10)+1; document.getElementById('level').textContent = 'Level '+level; dropInterval = Math.max(100, 1000 - (level-1)*80);
+    }
+  }
+
+  function resetPiece(){
+    current.piece = next; current.pos = {x:Math.floor((COLS-current.piece[0].length)/2), y:0}; next = randomPiece();
+    if (collide(field, current.piece, current.pos)) {gameOver = true; running = false; document.getElementById('state').textContent = 'Game Over — Press F5 to restart';}
+    drawNext();
+  }
+
+  function drop(){
+    current.pos.y++;
+    if (collide(field, current.piece, current.pos)){
+      current.pos.y--; merge(field, current.piece, current.pos); sweep(); resetPiece();
+    }
+    dropCounter = 0;
+  }
+
+  function hardDrop(){
+    while(!collide(field, current.piece, {x:current.pos.x,y:current.pos.y+1})) current.pos.y++;
+    merge(field, current.piece, current.pos); sweep(); resetPiece(); score += 2*level; document.getElementById('score').textContent = score;
+  }
+
+  function move(offset){
+    current.pos.x += offset; if (collide(field, current.piece, current.pos)) current.pos.x -= offset;
+  }
+
+  function rotateCurrent(){
+    const rotated = rotate(current.piece);
+    const old = current.piece; const oldX = current.pos.x; current.piece = rotated;
+    if (collide(field, current.piece, current.pos)){
+      // attempt wall kicks
+      const kicks = [1,-1,2,-2]; let ok=false;
+      for (let k of kicks){ current.pos.x += k; if(!collide(field,current.piece,current.pos)){ok=true;break;} current.pos.x -= k; }
+      if(!ok){ current.piece = old; current.pos.x = oldX; }
+    }
+  }
+
+  function drawCell(x,y,val,ctxRef){
+    if(!val) return; ctxRef.fillStyle = colors[val]; ctxRef.fillRect(x*BLOCK+1,y*BLOCK+1,BLOCK-2,BLOCK-2);
+    ctxRef.strokeStyle = 'rgba(0,0,0,0.25)'; ctxRef.lineWidth = 1; ctxRef.strokeRect(x*BLOCK+1,y*BLOCK+1,BLOCK-2,BLOCK-2);
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    // grid
+    ctx.fillStyle = '#071227'; ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.strokeStyle = 'rgba(255,255,255,0.03)'; for(let x=0;x<=COLS;x++){ctx.beginPath();ctx.moveTo(x*BLOCK,0);ctx.lineTo(x*BLOCK,canvas.height);ctx.stroke();}
+    for(let y=0;y<=ROWS;y++){ctx.beginPath();ctx.moveTo(0,y*BLOCK);ctx.lineTo(canvas.width,y*BLOCK);ctx.stroke();}
+    // field
+    for(let y=0;y<ROWS;y++) for(let x=0;x<COLS;x++) if(field[y][x]) drawCell(x,y,field[y][x],ctx);
+    // current piece
+    for(let y=0;y<current.piece.length;y++) for(let x=0;x<current.piece[y].length;x++) if(current.piece[y][x]) drawCell(current.pos.x+x,current.pos.y+y,current.piece[y][x],ctx);
+  }
+
+  function drawNext(){
+    nctx.clearRect(0,0,nextCanvas.width,nextCanvas.height);
+    nctx.fillStyle = '#071227'; nctx.fillRect(0,0,nextCanvas.width,nextCanvas.height);
+    const size = 20; const offsetX = 4; const offsetY = 4;
+    for(let y=0;y<next.length;y++) for(let x=0;x<next[y].length;x++) if(next[y][x]){
+      nctx.fillStyle = colors[next[y][x]]; nctx.fillRect((x+offsetX)*size,(y+offsetY)*size,size-4,size-4);
+    }
+  }
+
+  function update(time=0){
+    if(!lastTime) lastTime=time; const delta = time - lastTime; lastTime = time;
+    if (!running){ draw(); return; }
+    dropCounter += delta;
+    if (dropCounter > dropInterval) drop();
+    draw(); requestAnimationFrame(update);
+  }
+
+  document.addEventListener('keydown', e=>{
+    if (gameOver) return;
+    if (e.key === 'ArrowLeft'){ move(-1); draw(); }
+    else if (e.key === 'ArrowRight'){ move(1); draw(); }
+    else if (e.key === 'ArrowDown'){ drop(); draw(); }
+    else if (e.key === 'ArrowUp'){ rotateCurrent(); draw(); }
+    else if (e.code === 'Space'){ e.preventDefault(); if(!running && !gameOver){ running=true; document.getElementById('state').textContent='Playing'; requestAnimationFrame(update);} else { hardDrop(); draw(); } }
+    else if (e.key === 'p' || e.key === 'P'){ running = !running; document.getElementById('state').textContent = running ? 'Playing' : 'Paused'; if(running) requestAnimationFrame(update); }
+  });
+
+  // Start
+  drawNext(); resetPiece(); document.getElementById('state').textContent='Ready — Press Space to start'; draw();
+
+  // Touch controls (basic)
+  let touchStartX = null;
+  canvas.addEventListener('touchstart', e=>{ const t=e.touches[0]; touchStartX = t.clientX; });
+  canvas.addEventListener('touchmove', e=>{ e.preventDefault(); }, {passive:false});
+  canvas.addEventListener('touchend', e=>{ const t = e.changedTouches[0]; const dx = t.clientX - (touchStartX||0); if (Math.abs(dx) > 40) { if(dx>0) move(1); else move(-1);} else { rotateCurrent(); } draw(); });
+
+})();
+</script>
+</body>
+</html>
